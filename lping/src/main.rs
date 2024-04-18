@@ -12,23 +12,37 @@ use pnet_transport::icmp_packet_iter;
 use pnet_transport::TransportChannelType::Layer4;
 use pnet_transport::{transport_channel, TransportProtocol};
 use rand::random;
+use url::Url;
+use tokio;
+use std::net;
 use std::{
     env,
-    net::IpAddr,
+    net::{IpAddr, ToSocketAddrs, SocketAddr},
     sync::{Arc, RwLock},
     time::{Duration, Instant},
 };
 
 const ICMP_SIZE: usize = 64;    // ICMP数据包大小
 
-fn main() -> anyhow::Result<()> {
+#[tokio::main]
+async fn main() -> anyhow::Result<()> {
     // 解析命令行参数，获取目标IP地址
     let args: Vec<String> = env::args().collect();
     if args.len() < 2 {
         panic!("Usage: lping target_ip");
     }
-    let target_ip: IpAddr = args[1].parse().unwrap();
-    println!("icmp echo request to target ip: {:#?}", target_ip);
+    let url_str: &String = &args[1];
+    let mut ip: IpAddr = "0.0.0.0".parse().unwrap();
+    println!("url str: {}", url_str);
+    let mut address =  tokio::net::lookup_host((url_str.clone(), 80 as u16))
+        .await
+        .expect("error of lookup_host");
+    if let Some(addr) = address.next() {    
+        println!("addr: {}", addr);
+        ip = addr.ip();
+    }
+
+    println!("icmp echo request to target ip: {:#?}", ip);
     
     // 创建传输通道（用于发送和接收ICMP数据包)
     // 确定协议 并且创建数据包通道 tx 为发送通道, rx为接收通道
@@ -48,7 +62,7 @@ fn main() -> anyhow::Result<()> {
         // println!("icmp_packet: {:?}", icmp_packet);
         let timer = Arc::new(RwLock::new(Instant::now()));
         // 发送ICMP数据包
-        tx.send_to(icmp_packet, target_ip)?;
+        tx.send_to(icmp_packet, ip)?;
         
         match iter.next() {
             Ok((packet, addr)) => match EchoReplyPacket::new(packet.packet()) {
